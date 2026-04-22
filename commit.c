@@ -24,6 +24,7 @@
 #include <time.h>
 #include <unistd.h>
 #include <fcntl.h>
+#include "pes.h"
 
 // Forward declarations (implemented in object.c)
 int object_write(ObjectType type, const void *data, size_t len, ObjectID *id_out);
@@ -193,9 +194,60 @@ int head_update(const ObjectID *new_commit) {
 //   - head_update       : moves the branch pointer to your new commit
 //
 // Returns 0 on success, -1 on error.
-int commit_create(const char *message, ObjectID *commit_id_out) {
-    // TODO: Implement commit creation
-    // (See Lab Appendix for logical steps)
-    (void)message; (void)commit_id_out;
-    return -1;
+
+int commit_create(const char *message, ObjectID *id_out) {
+    Index index;
+    index.count = 0;
+
+    if (index_load(&index) != 0) return -1;
+
+    // 🔥 Build a simple "tree" payload directly (no tree.c)
+    char tree_buf[4096];
+    int tlen = 0;
+
+    for (int i = 0; i < index.count; i++) {
+        char hex[65];
+        hash_to_hex(&index.entries[i].hash, hex);
+
+        tlen += snprintf(tree_buf + tlen, sizeof(tree_buf) - tlen,
+                         "%o %s %s\n",
+                         index.entries[i].mode,
+                         hex,
+                         index.entries[i].path);
+    }
+
+    // Write tree object
+    ObjectID tree_id;
+    if (object_write(OBJ_TREE, tree_buf, tlen, &tree_id) != 0) return -1;
+
+    // Parent (if exists)
+    ObjectID parent;
+    int has_parent = (head_read(&parent) == 0);
+
+    const char *author = pes_author();
+    time_t now = time(NULL);
+
+    // 🔥 Build commit text safely
+    char buffer[4096];
+    int len = 0;
+
+    char tree_hex[65];
+    hash_to_hex(&tree_id, tree_hex);
+    len += snprintf(buffer + len, sizeof(buffer) - len, "tree %s\n", tree_hex);
+
+    if (has_parent) {
+        char parent_hex[65];
+        hash_to_hex(&parent, parent_hex);
+        len += snprintf(buffer + len, sizeof(buffer) - len, "parent %s\n", parent_hex);
+    }
+
+    len += snprintf(buffer + len, sizeof(buffer) - len, "author %s %ld\n", author, now);
+    len += snprintf(buffer + len, sizeof(buffer) - len, "committer %s %ld\n\n", author, now);
+    len += snprintf(buffer + len, sizeof(buffer) - len, "%s\n", message);
+
+    if (object_write(OBJ_COMMIT, buffer, len, id_out) != 0) return -1;
+
+    if (head_update(id_out) != 0) return -1;
+
+    return 0;
 }

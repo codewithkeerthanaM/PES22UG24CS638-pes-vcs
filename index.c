@@ -197,10 +197,9 @@ int index_save(const Index *index) {
 
     fclose(f);
 
-    // rename safely
-    if (rename(".pes/index.tmp", ".pes/index") != 0) {
-        return -1;
-    }
+    // overwrite safely
+    remove(".pes/index");   // 🔥 important
+    rename(".pes/index.tmp", ".pes/index");
 
     return 0;
 }
